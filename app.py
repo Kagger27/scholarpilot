@@ -3,6 +3,7 @@ import fitz
 import pandas as pd
 import re
 from io import BytesIO
+from collections import Counter
 
 st.set_page_config(
     page_title="ScholarPilot",
@@ -11,103 +12,133 @@ st.set_page_config(
 )
 
 st.title("📚 ScholarPilot")
-st.subheader("Your AI Research Assistant")
+st.subheader("Your Free Research Assistant")
 
 st.write(
-    "Turn research papers into an organized "
-    "literature review matrix."
+    "Extract, organize, and compare research papers "
+    "to help prepare your literature review."
 )
 
-st.divider()
-st.header("📄 Upload Research Papers")
-
-uploaded_files = st.file_uploader(
-    "Choose your research paper PDFs",
-    type=["pdf"],
-    accept_multiple_files=True
+st.info(
+    "This version uses text-processing rules, not an AI model. "
+    "Always verify extracted information against the original paper."
 )
 
 
-def extract_pdf_text(uploaded_file):
-    text_parts = []
+def clean_text(text):
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
+
+def extract_pdf(uploaded_file):
     with fitz.open(
         stream=uploaded_file.getvalue(),
         filetype="pdf"
     ) as document:
-        for page in document:
-            text_parts.append(page.get_text())
+        pages = [page.get_text() for page in document]
 
-    return "\n".join(text_parts)
+    return "\n".join(pages)
 
 
-def find_section(text, keywords, max_chars=1200):
-    """Find a likely section using headings or keywords."""
-    for keyword in keywords:
+def get_section(text, headings, max_chars=1500):
+    for heading in headings:
         pattern = re.compile(
-            rf"(?i)\b{re.escape(keyword)}\b\s*[:.\-]?\s*"
+            r"(?im)^\s*" + re.escape(heading) +
+            r"\s*:?\s*$"
         )
+
         match = pattern.search(text)
 
         if match:
-            excerpt = text[match.end():match.end() + max_chars]
-            excerpt = re.sub(r"\s+", " ", excerpt).strip()
+            following_text = text[match.end():]
+            next_heading = re.search(
+                r"(?im)^\s*(?:discussion|conclusion|"
+                r"limitations|references|acknowledgments|"
+                r"acknowledgements|results|methods|"
+                r"methodology|introduction)\s*:?\s*$",
+                following_text
+            )
+
+            if next_heading:
+                following_text = following_text[:next_heading.start()]
+
+            excerpt = clean_text(following_text)
 
             if excerpt:
-                return excerpt
+                return excerpt[:max_chars]
 
     return "Needs manual review"
 
 
-def analyze_paper(uploaded_file):
-    text = extract_pdf_text(uploaded_file)
-
-    if not text.strip():
-        return {
-            "Paper Title": uploaded_file.name,
-            "Authors": "Needs manual review",
-            "Research Objective": "No extractable text; manual review needed",
-            "Methodology": "Needs manual review",
-            "Sample Size": "Needs manual review",
-            "Key Findings": "Needs manual review",
-            "Research Gaps": "Needs manual review",
-        }
-
+def analyze_paper(filename, text):
     lines = [
         line.strip()
         for line in text.splitlines()
         if line.strip()
     ]
 
-    title = lines[0] if lines else uploaded_file.name
+    title = filename.removesuffix(".pdf")
 
-    objective = find_section(
+    for line in lines[:15]:
+        if len(line) > 20 and len(line) < 300:
+            title = line
+            break
+
+    objective = get_section(
         text,
         [
-            "objective",
-            "objectives",
-            "aim of this study",
-            "purpose of this study",
-            "study aim",
-            "research question",
-        ],
+            "Objectives",
+            "Objective",
+            "Study Aim",
+            "Aim",
+            "Purpose",
+            "Research Questions",
+        ]
     )
 
-    methodology = find_section(
+    methodology = get_section(
         text,
         [
-            "methods",
-            "methodology",
-            "study design",
-            "materials and methods",
-        ],
+            "Methods",
+            "Methodology",
+            "Materials and Methods",
+            "Study Design",
+        ]
     )
+
+    findings = get_section(
+        text,
+        [
+            "Results",
+            "Findings",
+            "Principal Findings",
+        ]
+    )
+
+    limitations = get_section(
+        text,
+        [
+            "Limitations",
+            "Study Limitations",
+            "Limitations and Future Research",
+        ],
+        max_chars=1200
+    )
+
+    if limitations == "Needs manual review":
+        limitations = (
+            "No clearly labeled limitations section found. "
+            "Please review the full paper."
+        )
 
     sample_size = "Needs manual review"
+
     sample_patterns = [
-        r"\b(?:sample size of|sample of|included|enrolled|randomized)\s+"
-        r"(\d[\d,]*)\s+(?:participants|patients|subjects|people|clinicians)",
-        r"\b(\d[\d,]*)\s+(?:participants|patients|subjects|clinicians)\b",
+        r"\b(?:sample size of|sample of|included|enrolled|"
+        r"randomized)\s+(\d[\d,]*)\s+"
+        r"(?:participants|patients|subjects|clinicians|people)\b",
+        r"\b(\d[\d,]*)\s+"
+        r"(?:participants|patients|subjects|clinicians)\b",
     ]
 
     for pattern in sample_patterns:
@@ -116,105 +147,218 @@ def analyze_paper(uploaded_file):
             sample_size = match.group(1)
             break
 
-    findings = find_section(
-        text,
-        [
-            "results",
-            "findings",
-            "principal findings",
-            "main findings",
-        ],
-    )
+    design = "Needs manual review"
 
-    gaps = find_section(
-        text,
-        [
-            "limitations",
-            "future research",
-            "future studies",
-            "research gaps",
-        ],
-        max_chars=1000,
-    )
+    if re.search(r"\brandomized clinical trial\b", text, re.I):
+        design = "Randomized clinical trial"
+    elif re.search(r"\brandomized controlled trial\b", text, re.I):
+        design = "Randomized controlled trial"
+    elif re.search(r"\bsystematic review\b", text, re.I):
+        design = "Systematic review"
+    elif re.search(r"\bmeta-analysis\b", text, re.I):
+        design = "Meta-analysis"
+    elif re.search(r"\bcross-sectional study\b", text, re.I):
+        design = "Cross-sectional study"
+    elif re.search(r"\bcohort study\b", text, re.I):
+        design = "Cohort study"
+    elif re.search(r"\bqualitative study\b", text, re.I):
+        design = "Qualitative study"
 
     authors = "Needs manual review"
 
     return {
-        "Paper Title": title[:500],
+        "Paper Title": title,
         "Authors": authors,
         "Research Objective": objective,
         "Methodology": methodology,
+        "Study Design": design,
         "Sample Size": sample_size,
         "Key Findings": findings,
-        "Research Gaps": gaps,
+        "Limitations": limitations,
+        "Research Gaps": (
+            "Review the limitations and future research "
+            "recommendations; no gap has been verified."
+        ),
+        "Source File": filename,
     }
 
 
-if uploaded_files:
-    st.success(f"{len(uploaded_files)} paper(s) uploaded.")
+def get_keywords(text):
+    stop_words = {
+        "about", "after", "again", "against", "among",
+        "also", "been", "being", "between", "both",
+        "could", "does", "during", "each", "from",
+        "have", "into", "more", "most", "other",
+        "over", "same", "such", "than", "that",
+        "their", "them", "then", "there", "these",
+        "they", "this", "those", "through", "under",
+        "very", "were", "what", "when", "where",
+        "which", "while", "with", "within", "would",
+        "study", "studies", "results", "research",
+        "using", "used", "based", "methods", "method",
+        "data", "paper", "group", "groups", "conclusion",
+    }
 
-    if st.button("Analyze Papers"):
-        results = []
+    words = re.findall(r"\b[a-zA-Z]{4,}\b", text.lower())
 
-        progress = st.progress(0)
-        status = st.empty()
+    return Counter(
+        word for word in words
+        if word not in stop_words
+    )
 
-        for index, uploaded_file in enumerate(uploaded_files):
-            status.write(
-                f"Analyzing {uploaded_file.name}..."
-            )
 
-            try:
-                results.append(analyze_paper(uploaded_file))
-            except Exception as error:
+st.divider()
+st.header("📄 Upload Research Papers")
+
+uploaded_files = st.file_uploader(
+    "Select one or more PDF research papers",
+    type=["pdf"],
+    accept_multiple_files=True
+)
+
+if st.button(
+    "Analyze Papers",
+    disabled=not uploaded_files
+):
+    results = []
+    texts = {}
+
+    progress = st.progress(0)
+
+    for index, file in enumerate(uploaded_files):
+        try:
+            text = extract_pdf(file)
+
+            if not text.strip():
                 st.warning(
-                    f"Could not analyze {uploaded_file.name}: {error}"
+                    f"{file.name} contains no extractable text. "
+                    "It may be a scanned PDF requiring OCR."
                 )
+                continue
 
-            progress.progress(
-                (index + 1) / len(uploaded_files)
+            texts[file.name] = text
+            results.append(analyze_paper(file.name, text))
+
+        except Exception as error:
+            st.warning(
+                f"Could not process {file.name}: {error}"
             )
 
-        status.empty()
+        progress.progress((index + 1) / len(uploaded_files))
 
-        if results:
-            matrix = pd.DataFrame(results)
+    st.session_state["results"] = results
+    st.session_state["texts"] = texts
 
-            st.session_state["matrix"] = matrix
+if st.session_state.get("results"):
+    matrix = pd.DataFrame(st.session_state["results"])
 
-            st.success("Analysis finished!")
-
-if "matrix" in st.session_state:
     st.divider()
-    st.header("📊 Literature Review Matrix")
+    st.header("📊 Individual Paper Analysis")
 
     st.dataframe(
-        st.session_state["matrix"],
+        matrix,
         use_container_width=True
     )
 
-    excel_file = BytesIO()
+    excel_buffer = BytesIO()
 
     with pd.ExcelWriter(
-        excel_file,
+        excel_buffer,
         engine="openpyxl"
     ) as writer:
-        st.session_state["matrix"].to_excel(
+        matrix.to_excel(
             writer,
             index=False,
             sheet_name="Literature Matrix"
         )
 
     st.download_button(
-        label="📥 Download Literature Review Matrix",
-        data=excel_file.getvalue(),
-        file_name="ScholarPilot_Literature_Review_Matrix.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "📥 Download Literature Matrix (Excel)",
+        data=excel_buffer.getvalue(),
+        file_name="ScholarPilot_Literature_Matrix.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        )
     )
+
+    st.divider()
+    st.header("🔎 Compare Research Papers")
+
+    texts = st.session_state["texts"]
+
+    if len(texts) >= 2:
+        keyword_results = []
+
+        for filename, text in texts.items():
+            common_words = get_keywords(text).most_common(10)
+
+            keyword_results.append({
+                "Paper": filename,
+                "Frequent Terms": ", ".join(
+                    word for word, count in common_words
+                )
+            })
+
+        st.subheader("Common Research Topics")
+
+        st.write(
+            "Frequent terms can help you spot potential themes. "
+            "They do not prove that papers share the same conclusions."
+        )
+
+        st.dataframe(
+            pd.DataFrame(keyword_results),
+            use_container_width=True
+        )
+
+        all_keywords = [
+            set(get_keywords(text).keys())
+            for text in texts.values()
+        ]
+
+        shared_terms = set.intersection(*all_keywords)
+
+        if shared_terms:
+            st.subheader("Terms Appearing in Every Paper")
+
+            st.write(
+                ", ".join(sorted(shared_terms)[:50])
+            )
+        else:
+            st.write(
+                "No shared keywords were found using the "
+                "current text-processing rules."
+            )
+
+        st.subheader("Compare Extracted Findings")
+
+        st.dataframe(
+            matrix[
+                [
+                    "Paper Title",
+                    "Study Design",
+                    "Sample Size",
+                    "Key Findings",
+                    "Limitations",
+                ]
+            ],
+            use_container_width=True
+        )
+
+        st.caption(
+            "This comparison is based on extracted text and "
+            "keyword overlap. It does not establish causation, "
+            "agreement between results, or definitive research gaps."
+        )
+
+    else:
+        st.info(
+            "Upload at least two papers to compare them."
+        )
 
 st.divider()
 
 st.caption(
-    "ScholarPilot | Research smarter, not harder. "
-    "Always verify extracted information against the original paper."
-        )
+    "ScholarPilot | Research smarter, not harder."
+    )
