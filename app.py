@@ -12,21 +12,28 @@ st.set_page_config(
     layout="wide"
 )
 
+# -----------------------------
+# APP DESIGN
+# -----------------------------
+
 st.title("📚 ScholarPilot")
 st.subheader("Your AI Research Assistant")
 
 st.write(
-    "Analyze research papers, build literature review matrices, "
-    "and compare findings using Gemini AI."
+    "Analyze research papers, verify findings against original "
+    "PDF pages, and build literature review matrices."
 )
 
 st.info(
-    "AI-generated information may contain errors. "
-    "Always verify important details against the original papers."
+    "AI-generated information can contain errors. "
+    "Always verify quotations, page numbers, and conclusions "
+    "against the original paper."
 )
 
+# -----------------------------
+# GEMINI CONNECTION
+# -----------------------------
 
-# Connect to Gemini securely
 def get_gemini_client():
     api_key = st.secrets.get("GEMINI_API_KEY")
 
@@ -39,48 +46,69 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-# Extract text from PDF
+# -----------------------------
+# PDF TEXT EXTRACTION
+# -----------------------------
+
 def extract_pdf(uploaded_file):
+    pages = []
+
     with fitz.open(
         stream=uploaded_file.getvalue(),
         filetype="pdf"
     ) as document:
-        pages = [page.get_text() for page in document]
 
-    return "\n".join(pages)
+        for page_number, page in enumerate(document, start=1):
+            page_text = page.get_text()
+
+            pages.append({
+                "page": page_number,
+                "text": page_text
+            })
+
+    return pages
 
 
-# Ask Gemini to analyze one paper
-def analyze_paper(client, filename, text):
+def prepare_paper_text(pages, max_chars=45000):
+    """
+    Preserve PDF page labels so the AI can identify
+    the page containing supporting evidence.
+    """
+    sections = []
+    total_chars = 0
+
+    for page in pages:
+        section = (
+            f"\n[PDF PAGE {page['page']}]\n"
+            f"{page['text']}\n"
+        )
+
+        remaining = max_chars - total_chars
+
+        if remaining <= 0:
+            break
+
+        sections.append(section[:remaining])
+        total_chars += min(len(section), remaining)
+
+    return "\n".join(sections)
+
+
+# -----------------------------
+# AI PAPER ANALYSIS
+# -----------------------------
+
+def analyze_paper(client, filename, pages):
+
+    paper_text = prepare_paper_text(pages)
+
     prompt = f"""
 You are a careful academic research assistant.
 
-Analyze the research paper text below.
+Analyze the research paper below.
 
-Extract the following fields:
-1. Paper Title
-2. Authors
-3. Publication Year
-4. Research Objective
-5. Methodology
-6. Study Design
-7. Sample Size
-8. Key Findings
-9. Limitations
-10. Research Gaps
+Return a valid JSON object with these exact keys:
 
-RULES:
-- Use only information supported by the provided paper text.
-- Do not invent authors, dates, sample sizes, or findings.
-- If information is unavailable, write "Not clearly reported".
-- Distinguish the authors' stated limitations from your own inferences.
-- Research gaps must be supported by the paper.
-- If you infer a possible gap, label it "Potential gap".
-- Keep each answer clear and concise.
-- Return valid JSON only, without Markdown fences.
-- Every field must contain a string.
-
-Use exactly these JSON keys:
 {{
   "Paper Title": "",
   "Authors": "",
@@ -91,13 +119,40 @@ Use exactly these JSON keys:
   "Sample Size": "",
   "Key Findings": "",
   "Limitations": "",
-  "Research Gaps": ""
+  "Research Gaps": "",
+  "Evidence for Key Findings": "",
+  "Evidence for Limitations": "",
+  "Evidence for Research Gaps": ""
 }}
+
+RULES:
+
+1. Use only information supported by the supplied paper text.
+2. Never invent authors, dates, statistics, quotations, or findings.
+3. If information is missing, write "Not clearly reported".
+4. Keep answers concise and academically appropriate.
+5. Distinguish author-reported information from your own inferences.
+6. For evidence fields, provide a short verbatim quotation from
+   the paper followed by its PDF page number.
+7. Use page labels such as "PDF page 6" from the supplied text.
+8. PDF page numbers refer to the numbered pages of the uploaded
+   file, starting at page 1. They may differ from printed journal
+   page numbers.
+9. Copy evidence quotations exactly as they appear in the
+   extracted text. Do not invent or reconstruct missing wording.
+10. If the evidence cannot be located confidently, say
+    "Evidence not located; manual verification required."
+11. For research gaps, distinguish:
+    - gaps explicitly identified by the paper's authors
+    - potential gaps inferred from the paper
+12. Do not present an inferred research gap as a fact.
+13. If the text does not contain enough information, explain this.
+14. Return valid JSON only, without Markdown fences.
 
 SOURCE FILE: {filename}
 
 PAPER TEXT:
-{text[:45000]}
+{paper_text}
 """
 
     response = client.models.generate_content(
@@ -111,212 +166,93 @@ PAPER TEXT:
 
     result = json.loads(response.text)
 
+    expected_fields = [
+        "Paper Title",
+        "Authors",
+        "Publication Year",
+        "Research Objective",
+        "Methodology",
+        "Study Design",
+        "Sample Size",
+        "Key Findings",
+        "Limitations",
+        "Research Gaps",
+        "Evidence for Key Findings",
+        "Evidence for Limitations",
+        "Evidence for Research Gaps",
+    ]
+
+    for field in expected_fields:
+        result.setdefault(field, "Not clearly reported")
+
     result["Source File"] = filename
 
     return result
 
 
-# Compare multiple papers
+# -----------------------------
+# MULTI-PAPER COMPARISON
+# -----------------------------
+
 def compare_papers(client, papers):
-    paper_summaries = []
+
+    summaries = []
 
     for paper in papers:
-        paper_summaries.append({
+        summaries.append({
             "title": paper.get("Paper Title", ""),
+            "authors": paper.get("Authors", ""),
             "objective": paper.get("Research Objective", ""),
             "methodology": paper.get("Methodology", ""),
             "design": paper.get("Study Design", ""),
             "findings": paper.get("Key Findings", ""),
             "limitations": paper.get("Limitations", ""),
             "gaps": paper.get("Research Gaps", ""),
+            "finding_evidence": paper.get(
+                "Evidence for Key Findings", ""
+            ),
+            "gap_evidence": paper.get(
+                "Evidence for Research Gaps", ""
+            ),
+            "source_file": paper.get("Source File", ""),
         })
 
     prompt = f"""
 You are an academic literature review assistant.
 
-Compare these AI-extracted research paper summaries:
+Compare the following extracted research paper information:
 
-{json.dumps(paper_summaries, ensure_ascii=False)}
+{json.dumps(summaries, ensure_ascii=False)}
 
-Return a clear comparison in Markdown with these headings:
+Write a Markdown report with these headings:
 
 ## Common Themes
-Identify themes supported by multiple papers.
+Identify themes supported by the supplied papers.
 
 ## Agreements
-Explain findings that appear consistent across papers.
+Identify findings that appear consistent, citing the paper
+titles and relevant evidence where available.
 
 ## Differences
-Identify differences in findings, methods, populations, or study designs.
+Compare findings, methods, study designs, and populations.
+
+## Unresolved Inquiries
+Describe questions the supplied papers do not adequately answer.
 
 ## Research Gaps
-Identify potential gaps supported by the supplied summaries.
-Clearly distinguish evidence from speculation.
+Distinguish gaps explicitly reported by authors from potential
+gaps inferred by comparing the papers.
 
 ## Overall Synthesis
-Provide a short synthesis suitable as a starting point for a
-literature review.
+Write a concise, balanced preliminary literature synthesis.
+
+## Evidence and Verification Notes
+Identify important claims that require checking against the
+original PDFs. Include available source filenames, quotations,
+and PDF page references.
 
 IMPORTANT:
-- Use only the information supplied.
-- Do not invent results, citations, or statistics.
-- Do not assume two studies agree simply because they discuss
-  the same topic.
-- Mention when the summaries do not provide enough information.
-- This is a preliminary synthesis, not a substitute for reading
-  the original papers.
-"""
-
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-        config={"temperature": 0.2},
-    )
-
-    return response.text
-
-
-# Upload interface
-st.divider()
-st.header("📄 Upload Research Papers")
-
-uploaded_files = st.file_uploader(
-    "Choose your research paper PDFs",
-    type=["pdf"],
-    accept_multiple_files=True,
-)
-
-if st.button(
-    "🤖 Analyze Papers with AI",
-    disabled=not uploaded_files,
-):
-    client = get_gemini_client()
-
-    results = []
-    texts = {}
-
-    progress = st.progress(0)
-
-    for index, file in enumerate(uploaded_files):
-        try:
-            text = extract_pdf(file)
-
-            if not text.strip():
-                st.warning(
-                    f"{file.name} has no extractable text. "
-                    "It may be a scanned PDF."
-                )
-            else:
-                with st.spinner(f"Analyzing {file.name}..."):
-                    result = analyze_paper(
-                        client,
-                        file.name,
-                        text,
-                    )
-
-                results.append(result)
-                texts[file.name] = text
-
-        except Exception as error:
-            st.warning(
-                f"Could not analyze {file.name}. "
-                f"Check the file and API quota. Details: {error}"
-            )
-
-        progress.progress((index + 1) / len(uploaded_files))
-
-    st.session_state["results"] = results
-    st.session_state["texts"] = texts
-
-
-# Display results
-if st.session_state.get("results"):
-    matrix = pd.DataFrame(st.session_state["results"])
-
-    st.divider()
-    st.header("📊 Literature Review Matrix")
-
-    st.dataframe(
-        matrix,
-        use_container_width=True,
-    )
-
-    # Excel export
-    excel_buffer = BytesIO()
-
-    with pd.ExcelWriter(
-        excel_buffer,
-        engine="openpyxl",
-    ) as writer:
-        matrix.to_excel(
-            writer,
-            index=False,
-            sheet_name="Literature Matrix",
-        )
-
-    st.download_button(
-        label="📥 Download Literature Matrix (Excel)",
-        data=excel_buffer.getvalue(),
-        file_name="ScholarPilot_Literature_Matrix.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
-    )
-
-    # Individual paper details
-    st.divider()
-    st.header("📖 Review Individual Papers")
-
-    for paper in st.session_state["results"]:
-        with st.expander(
-            paper.get("Paper Title", "Research Paper")
-        ):
-            for key, value in paper.items():
-                if key != "Source File":
-                    st.markdown(f"**{key}:** {value}")
-
-    # Compare papers
-    st.divider()
-    st.header("🔎 Compare Research Papers")
-
-    if len(st.session_state["results"]) >= 2:
-        if st.button("✨ Generate AI Comparison"):
-            client = get_gemini_client()
-
-            try:
-                with st.spinner(
-                    "Comparing papers with Gemini AI..."
-                ):
-                    comparison = compare_papers(
-                        client,
-                        st.session_state["results"],
-                    )
-
-                st.markdown(comparison)
-
-                st.session_state["comparison"] = comparison
-
-            except Exception as error:
-                st.error(
-                    f"Comparison failed: {error}"
-                )
-
-        if st.session_state.get("comparison"):
-            st.download_button(
-                "📥 Download AI Comparison",
-                data=st.session_state["comparison"],
-                file_name="ScholarPilot_Comparison.md",
-                mime="text/markdown",
-            )
-
-    else:
-        st.info(
-            "Upload at least two papers to compare them."
-        )
-
-st.divider()
-
-st.caption(
-    "ScholarPilot | Research smarter, not harder."
-    )
+- Do not invent citations, quotations, statistics, or page numbers.
+- Use only evidence included in the supplied summaries.
+- Distinguish evidence from interpretation.
+- Similar topics
