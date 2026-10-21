@@ -319,4 +319,4 @@ st.divider()
 
 st.caption(
     "ScholarPilot | Research smarter, not harder."
-        )
+    )
