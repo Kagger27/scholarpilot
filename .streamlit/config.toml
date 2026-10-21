@@ -2,8 +2,6 @@
 base = "dark"
 primaryColor = "#A78BFA"
 font = "sans serif"
-baseRadius = "large"
-showWidgetBorder = true
 
 [theme.dark]
 backgroundColor = "#0B1020"
