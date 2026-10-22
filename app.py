@@ -540,8 +540,68 @@ papers = st.session_state.get(
     [],
 )
 
-if papers:
+if papers: 
+    # RESEARCH DASHBOARD
     st.divider()
+
+    st.header("📊 Research Dashboard")
+
+    st.write(
+        "An overview of your analyzed research collection."
+    )
+
+    total_papers = len(papers)
+
+    findings_count = sum(
+        1 for paper in papers
+        if str(paper.get("Key Findings", "")).strip().lower()
+        not in ("", "not reported", "none", "n/a")
+    )
+
+    limitations_count = sum(
+        1 for paper in papers
+        if str(paper.get("Limitations", "")).strip().lower()
+        not in ("", "not reported", "none", "n/a")
+    )
+
+    gaps_count = sum(
+        1 for paper in papers
+        if str(paper.get("Research Gaps", "")).strip().lower()
+        not in ("", "not reported", "none", "n/a")
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="📄 Papers Analyzed",
+            value=total_papers,
+        )
+
+    with col2:
+        st.metric(
+            label="🔍 Papers With Key Findings",
+            value=findings_count,
+        )
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        st.metric(
+            label="⚠️ Papers With Limitations",
+            value=limitations_count,
+        )
+
+    with col4:
+        st.metric(
+            label="🎯 Papers With Research Gaps",
+            value=gaps_count,
+        )
+
+    st.caption(
+        "Counts are based on information extracted by AI. "
+        "Verify important findings against the original papers."
+    )   st.divider()
 
     st.header("📚 Literature Review Matrix")
 
