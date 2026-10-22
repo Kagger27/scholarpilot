@@ -22,11 +22,8 @@ st.subheader("Your AI-Powered Research Paper Assistant")
 
 st.markdown(
     """
-    Upload research papers to extract key information, organize
-    findings, identify research gaps, and compare studies.
-
-    **New:** Evidence quotations and PDF page references help
-    you verify important claims against the original papers.
+    Analyze research papers, organize findings, identify
+    research gaps, and compare studies using AI.
     """
 )
 
@@ -41,8 +38,8 @@ def get_gemini_client():
 
         if not api_key:
             st.error(
-                "Gemini API key not found. Add GEMINI_API_KEY "
-                "to your Streamlit app Secrets."
+                "Gemini API key not found. Please check your "
+                "Streamlit app Secrets."
             )
             return None
 
@@ -58,11 +55,15 @@ def get_gemini_client():
 # =========================================================
 
 def extract_pdf(uploaded_file):
-    """Extract text from each PDF page separately."""
+    """Extract text from every PDF page."""
 
     try:
         pdf_bytes = uploaded_file.getvalue()
-        document = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+        document = fitz.open(
+            stream=pdf_bytes,
+            filetype="pdf",
+        )
 
         pages = []
 
@@ -75,6 +76,7 @@ def extract_pdf(uploaded_file):
             )
 
         document.close()
+
         return pages
 
     except Exception as error:
@@ -85,10 +87,7 @@ def extract_pdf(uploaded_file):
 
 
 def prepare_paper_text(pages, max_chars=45000):
-    """
-    Combine extracted text while preserving PDF page labels.
-    The character limit helps control API usage.
-    """
+    """Prepare PDF text while retaining PDF page numbers."""
 
     sections = []
     remaining = max_chars
@@ -123,7 +122,7 @@ def prepare_paper_text(pages, max_chars=45000):
 # =========================================================
 
 def clean_json_response(response_text):
-    """Remove Markdown code fences if Gemini returns them."""
+    """Remove Markdown code fences from JSON if present."""
 
     text = response_text.strip()
 
@@ -140,7 +139,7 @@ def clean_json_response(response_text):
 
 
 def generate_content(client, prompt, json_mode=False):
-    """Call Gemini and return the generated text."""
+    """Generate content using Gemini."""
 
     config = {"temperature": 0.1}
 
@@ -160,24 +159,25 @@ def generate_content(client, prompt, json_mode=False):
 
 
 # =========================================================
-# ANALYZE ONE RESEARCH PAPER
+# ANALYZE INDIVIDUAL RESEARCH PAPER
 # =========================================================
 
 def analyze_paper(client, filename, pages):
+
     paper_text = prepare_paper_text(pages)
 
     if not paper_text.strip():
         raise ValueError(
             "No readable text was extracted from this PDF. "
-            "It may be a scanned document requiring OCR."
+            "The document may be scanned and require OCR."
         )
 
     prompt = f"""
 You are ScholarPilot, an academic research assistant.
 
-Analyze the supplied research paper carefully.
+Analyze the supplied research paper.
 
-Return ONLY valid JSON. Do not wrap the JSON in Markdown.
+Return ONLY valid JSON. Do not use Markdown code fences.
 
 Use exactly these keys:
 
@@ -199,27 +199,24 @@ Use exactly these keys:
 
 INSTRUCTIONS:
 
-1. Use information explicitly supported by the paper.
-2. Do not invent missing details, authors, dates, or statistics.
-3. If information cannot be determined, write "Not reported".
-4. Keep findings and limitations concise but informative.
-5. Distinguish limitations explicitly stated by the authors from
-   limitations you infer.
-6. Distinguish research gaps explicitly stated by the authors
-   from potential gaps inferred from the paper.
-7. For evidence fields, provide short exact quotations from
-   the supplied paper text whenever possible.
-8. Include the PDF page number associated with each quotation.
-9. Use this format for evidence:
-
+1. Use information supported by the supplied paper.
+2. Do not invent authors, dates, statistics, or results.
+3. If information is unavailable, write "Not reported".
+4. Summarize findings clearly and accurately.
+5. Distinguish author-reported limitations from your own
+   interpretation.
+6. Distinguish author-reported research gaps from potential
+   gaps inferred from the paper.
+7. For the evidence fields, provide short, exact quotations
+   from the supplied paper text when possible.
+8. Include the corresponding PDF page number for each quote.
+9. Format quotations like this:
    "Exact quotation from the paper" (PDF p. 4)
-
-10. Only cite page numbers shown in the supplied text labels.
-11. Never invent a quotation or page number.
-12. If suitable direct evidence cannot be found, explain that
-    the paper text provided does not contain a verifiable quote.
-13. The PDF page numbers refer to the actual PDF page order,
-    which may differ from printed page numbers.
+10. Only use page numbers shown in the supplied text.
+11. Never invent quotations or page references.
+12. If suitable evidence is unavailable, explain that.
+13. PDF page numbers refer to the actual PDF page order and
+    may differ from printed page numbers.
 
 SOURCE FILE: {filename}
 
@@ -241,8 +238,8 @@ PAPER TEXT:
 
     except json.JSONDecodeError as error:
         raise ValueError(
-            "Gemini returned information that could not be "
-            f"read as JSON. Details: {error}"
+            "Gemini returned a response that could not be "
+            f"read as JSON: {error}"
         )
 
     expected_fields = [
@@ -274,6 +271,7 @@ PAPER TEXT:
 # =========================================================
 
 def build_literature_matrix(papers):
+
     fields = [
         "Source File",
         "Paper Title",
@@ -294,12 +292,12 @@ def build_literature_matrix(papers):
     rows = []
 
     for paper in papers:
-        rows.append(
-            {
-                field: paper.get(field, "Not reported")
-                for field in fields
-            }
-        )
+        row = {}
+
+        for field in fields:
+            row[field] = paper.get(field, "Not reported")
+
+        rows.append(row)
 
     return pd.DataFrame(rows, columns=fields)
 
@@ -309,12 +307,14 @@ def build_literature_matrix(papers):
 # =========================================================
 
 def create_excel_file(dataframe):
+
     output = BytesIO()
 
     with pd.ExcelWriter(
         output,
         engine="openpyxl",
     ) as writer:
+
         dataframe.to_excel(
             writer,
             index=False,
@@ -331,24 +331,20 @@ def create_excel_file(dataframe):
 # =========================================================
 
 def compare_papers(client, papers):
+
     summaries = []
 
     for paper in papers:
         summaries.append(
             {
                 "Source File": paper.get("Source File", ""),
-                "Paper Title": paper.get(
-                    "Paper Title",
-                    "Not reported",
-                ),
+                "Paper Title": paper.get("Paper Title", ""),
                 "Authors": paper.get("Authors", ""),
                 "Publication Year": paper.get(
-                    "Publication Year",
-                    "",
+                    "Publication Year", ""
                 ),
                 "Research Objective": paper.get(
-                    "Research Objective",
-                    "",
+                    "Research Objective", ""
                 ),
                 "Methodology": paper.get("Methodology", ""),
                 "Study Design": paper.get("Study Design", ""),
@@ -357,16 +353,13 @@ def compare_papers(client, papers):
                 "Limitations": paper.get("Limitations", ""),
                 "Research Gaps": paper.get("Research Gaps", ""),
                 "Evidence for Key Findings": paper.get(
-                    "Evidence for Key Findings",
-                    "",
+                    "Evidence for Key Findings", ""
                 ),
                 "Evidence for Limitations": paper.get(
-                    "Evidence for Limitations",
-                    "",
+                    "Evidence for Limitations", ""
                 ),
                 "Evidence for Research Gaps": paper.get(
-                    "Evidence for Research Gaps",
-                    "",
+                    "Evidence for Research Gaps", ""
                 ),
             }
         )
@@ -374,48 +367,45 @@ def compare_papers(client, papers):
     prompt = f"""
 You are an academic literature review assistant.
 
-Compare the following extracted research paper information:
+Compare the following research paper summaries:
 
 {json.dumps(summaries, ensure_ascii=False, indent=2)}
 
-Write a Markdown report with these headings:
+Write a Markdown report with these sections:
 
 ## Common Themes
 Identify themes supported by the supplied papers.
 
 ## Agreements
-Identify findings that appear consistent. Refer to paper titles
-and relevant evidence where available.
+Describe findings that appear consistent, citing paper titles
+and available evidence.
 
 ## Differences
 Compare findings, methods, study designs, and populations.
 
 ## Unresolved Inquiries
-Describe questions the supplied papers do not adequately answer.
+Identify questions the papers do not adequately answer.
 
 ## Research Gaps
-Distinguish gaps explicitly reported by the authors from
-potential gaps inferred by comparing the papers.
+Distinguish gaps reported by the authors from potential gaps
+inferred by comparing the papers.
 
 ## Overall Synthesis
-Write a concise, balanced preliminary literature synthesis.
+Write a balanced preliminary literature synthesis.
 
 ## Evidence and Verification Notes
-Identify important claims that should be checked against the
-original PDFs. Include available source filenames, quotations,
-and PDF page references.
+Identify claims that should be checked against the original
+PDFs. Include available quotations and PDF page references.
 
-IMPORTANT RULES:
+RULES:
 
 - Do not invent citations, quotations, statistics, or page numbers.
-- Use only evidence included in the supplied summaries.
+- Use only the supplied summaries.
 - Distinguish evidence from interpretation.
-- Similar topics do not automatically mean that studies agree.
-- If information is insufficient, say so.
+- Similar topics do not automatically mean studies agree.
+- State when information is insufficient.
 - Do not claim that a research gap is definitive without evidence.
-- Make clear when a comparison is an interpretation.
-- This synthesis is a starting point, not a substitute for
-  reading the original research papers.
+- This synthesis does not replace reading the original papers.
 """
 
     response = client.models.generate_content(
@@ -433,7 +423,7 @@ IMPORTANT RULES:
 
 
 # =========================================================
-# MAIN APPLICATION
+# MAIN APPLICATION: UPLOAD PAPERS
 # =========================================================
 
 st.divider()
@@ -451,6 +441,7 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
+
     st.info(
         f"{len(uploaded_files)} PDF file(s) selected."
     )
@@ -462,9 +453,11 @@ if uploaded_files:
     )
 
     if analyze_button:
+
         client = get_gemini_client()
 
         if client:
+
             results = []
             progress = st.progress(0)
             status = st.empty()
@@ -472,6 +465,7 @@ if uploaded_files:
             total_files = len(uploaded_files)
 
             for index, uploaded_file in enumerate(uploaded_files):
+
                 status.write(
                     f"Analyzing {index + 1} of {total_files}: "
                     f"{uploaded_file.name}"
@@ -484,15 +478,18 @@ if uploaded_files:
                         f"Skipping {uploaded_file.name}: "
                         "no pages could be extracted."
                     )
+
                     progress.progress(
                         (index + 1) / total_files
                     )
                     continue
 
                 try:
+
                     with st.spinner(
                         f"Analyzing {uploaded_file.name}..."
                     ):
+
                         paper_result = analyze_paper(
                             client,
                             uploaded_file.name,
@@ -507,6 +504,7 @@ if uploaded_files:
                     )
 
                 except Exception as error:
+
                     st.error(
                         f"Could not analyze "
                         f"{uploaded_file.name}: {error}"
@@ -520,6 +518,12 @@ if uploaded_files:
 
             st.session_state["scholarpilot_results"] = results
 
+            # Clear an old comparison when new papers are analyzed.
+            st.session_state.pop(
+                "scholarpilot_comparison",
+                None,
+            )
+
             if results:
                 st.success(
                     f"Analysis complete! "
@@ -532,7 +536,7 @@ if uploaded_files:
 
 
 # =========================================================
-# DISPLAY RESULTS
+# DISPLAY RESULTS AND DASHBOARD
 # =========================================================
 
 papers = st.session_state.get(
@@ -540,8 +544,12 @@ papers = st.session_state.get(
     [],
 )
 
-if papers: 
+if papers:
+
+    # -----------------------------------------------------
     # RESEARCH DASHBOARD
+    # -----------------------------------------------------
+
     st.divider()
 
     st.header("📊 Research Dashboard")
@@ -552,33 +560,56 @@ if papers:
 
     total_papers = len(papers)
 
+    def has_reported_information(value):
+
+        if value is None:
+            return False
+
+        normalized = str(value).strip().lower()
+
+        return normalized not in (
+            "",
+            "not reported",
+            "none",
+            "n/a",
+            "not available",
+        )
+
     findings_count = sum(
-        1 for paper in papers
-        if str(paper.get("Key Findings", "")).strip().lower()
-        not in ("", "not reported", "none", "n/a")
+        1
+        for paper in papers
+        if has_reported_information(
+            paper.get("Key Findings", "")
+        )
     )
 
     limitations_count = sum(
-        1 for paper in papers
-        if str(paper.get("Limitations", "")).strip().lower()
-        not in ("", "not reported", "none", "n/a")
+        1
+        for paper in papers
+        if has_reported_information(
+            paper.get("Limitations", "")
+        )
     )
 
     gaps_count = sum(
-        1 for paper in papers
-        if str(paper.get("Research Gaps", "")).strip().lower()
-        not in ("", "not reported", "none", "n/a")
+        1
+        for paper in papers
+        if has_reported_information(
+            paper.get("Research Gaps", "")
+        )
     )
 
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.metric(
             label="📄 Papers Analyzed",
             value=total_papers,
         )
 
     with col2:
+
         st.metric(
             label="🔍 Papers With Key Findings",
             value=findings_count,
@@ -587,26 +618,33 @@ if papers:
     col3, col4 = st.columns(2)
 
     with col3:
+
         st.metric(
             label="⚠️ Papers With Limitations",
             value=limitations_count,
         )
 
     with col4:
+
         st.metric(
             label="🎯 Papers With Research Gaps",
             value=gaps_count,
         )
 
     st.caption(
-        "Counts are based on information extracted by AI. "
-        "Verify important findings against the original papers."
+        "Counts reflect information extracted by AI. "
+        "Verify important claims against the original papers."
     )
 
-st.divider()    
-st.header("📚 Literature Review Matrix")
+    # -----------------------------------------------------
+    # LITERATURE REVIEW MATRIX
+    # -----------------------------------------------------
 
-matrix = build_literature_matrix(papers)
+    st.divider()
+
+    st.header("📚 Literature Review Matrix")
+
+    matrix = build_literature_matrix(papers)
 
     st.dataframe(
         matrix,
@@ -636,6 +674,7 @@ matrix = build_literature_matrix(papers)
     st.header("🔍 Review Individual Papers")
 
     for index, paper in enumerate(papers):
+
         title = paper.get(
             "Paper Title",
             "Untitled paper",
@@ -650,7 +689,10 @@ matrix = build_literature_matrix(papers)
             f"📄 {title} — {filename}",
             expanded=False,
         ):
-            st.markdown(f"**Source file:** {filename}")
+
+            st.markdown(
+                f"**Source file:** {filename}"
+            )
 
             st.markdown("### Paper Information")
 
@@ -667,12 +709,16 @@ matrix = build_literature_matrix(papers)
             ]
 
             for field in display_fields:
+
                 st.markdown(f"**{field}**")
+
                 st.write(
                     paper.get(field, "Not reported")
                 )
 
-            st.markdown("### Evidence and Page References")
+            st.markdown(
+                "### Evidence and Page References"
+            )
 
             evidence_fields = [
                 "Evidence for Key Findings",
@@ -681,13 +727,15 @@ matrix = build_literature_matrix(papers)
             ]
 
             for field in evidence_fields:
+
                 st.markdown(f"**{field}**")
+
                 st.write(
                     paper.get(field, "Not reported")
                 )
 
     # -----------------------------------------------------
-    # COMPARE PAPERS
+    # RESEARCH PAPER COMPARISON
     # -----------------------------------------------------
 
     st.divider()
@@ -695,9 +743,10 @@ matrix = build_literature_matrix(papers)
     st.header("⚖️ Compare Research Papers")
 
     if len(papers) >= 2:
+
         st.write(
-            "Compare the selected papers to identify shared "
-            "themes, agreements, differences, and research gaps."
+            "Compare papers to explore shared themes, "
+            "agreements, differences, and research gaps."
         )
 
         if st.button(
@@ -705,13 +754,17 @@ matrix = build_literature_matrix(papers)
             type="primary",
             use_container_width=True,
         ):
+
             client = get_gemini_client()
 
             if client:
+
                 try:
+
                     with st.spinner(
                         "Comparing your research papers..."
                     ):
+
                         comparison = compare_papers(
                             client,
                             papers,
@@ -722,6 +775,7 @@ matrix = build_literature_matrix(papers)
                     ] = comparison
 
                 except Exception as error:
+
                     st.error(
                         f"Could not compare the papers: {error}"
                     )
@@ -732,6 +786,7 @@ matrix = build_literature_matrix(papers)
         )
 
         if comparison:
+
             st.markdown(comparison)
 
             st.download_button(
@@ -743,39 +798,5 @@ matrix = build_literature_matrix(papers)
             )
 
     else:
-        st.info(
-            "Upload and successfully analyze at least two "
-            "papers to use the comparison feature."
-        )
 
-    # -----------------------------------------------------
-    # CLEAR RESULTS
-    # -----------------------------------------------------
-
-    st.divider()
-
-    if st.button("🗑️ Clear Results"):
-        st.session_state.pop(
-            "scholarpilot_results",
-            None,
-        )
-
-        st.session_state.pop(
-            "scholarpilot_comparison",
-            None,
-        )
-
-        st.rerun()
-
-
-# =========================================================
-# FOOTER
-# =========================================================
-
-st.divider()
-
-st.caption(
-    "ScholarPilot | AI-assisted academic research analysis. "
-    "Always verify quotations, page numbers, and interpretations "
-    "against the original research papers."
-        )
+       
