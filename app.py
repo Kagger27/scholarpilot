@@ -601,7 +601,9 @@ if papers:
     st.caption(
         "Counts are based on information extracted by AI. "
         "Verify important findings against the original papers."
-    )   st.divider()
+    )
+
+st.divider()
 
     st.header("📚 Literature Review Matrix")
 
