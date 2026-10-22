@@ -16,6 +16,183 @@ st.set_page_config(
     page_icon="🎓",
     layout="wide",
 )
+# =========================================================
+# SCHOLARPILOT PREMIUM LANDING PAGE
+# =========================================================
+
+if "show_workspace" not in st.session_state:
+    st.session_state.show_workspace = False
+
+if not st.session_state.show_workspace:
+
+    st.markdown(
+        """
+        <style>
+        .sp-hero {
+            position: relative;
+            overflow: hidden;
+            text-align: center;
+            padding: 75px 20px 35px 20px;
+            border-radius: 24px;
+            background:
+                radial-gradient(
+                    ellipse at 50% 20%,
+                    #292052 0%,
+                    #11172B 48%,
+                    #0B1020 100%
+                );
+            border: 1px solid #353052;
+        }
+
+        .sp-watermark {
+            position: absolute;
+            top: 5px;
+            left: 0;
+            width: 100%;
+            font-size: clamp(45px, 11vw, 115px);
+            font-weight: 900;
+            letter-spacing: 5px;
+            color: #A78BFA;
+            opacity: 0.10;
+            text-shadow:
+                2px 2px 0 #302454,
+                4px 4px 0 #211A3C,
+                0 0 24px #8B5CF6;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .sp-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .sp-badge {
+            display: inline-block;
+            padding: 7px 14px;
+            border: 1px solid #6552A8;
+            border-radius: 30px;
+            color: #D8CCFF;
+            background: #211A3C;
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
+
+        .sp-title {
+            font-size: clamp(32px, 5vw, 54px);
+            font-weight: 800;
+            line-height: 1.15;
+            color: #F8FAFC;
+            margin-bottom: 18px;
+        }
+
+        .sp-title span {
+            color: #B7A0FF;
+        }
+
+        .sp-description {
+            max-width: 650px;
+            margin: 0 auto;
+            color: #CBD5E1;
+            font-size: 17px;
+            line-height: 1.8;
+        }
+
+        .sp-features {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 32px;
+        }
+
+        .sp-feature {
+            background: #171D31;
+            border: 1px solid #303A55;
+            border-radius: 12px;
+            padding: 13px 16px;
+            color: #E2E8F0;
+            font-size: 14px;
+        }
+
+        .sp-signature {
+            margin-top: 35px;
+            color: #A78BFA;
+            font-size: 13px;
+            letter-spacing: 2px;
+        }
+
+        [data-testid="stButton"] button {
+            border-radius: 12px;
+            min-height: 52px;
+            font-weight: 700;
+        }
+        </style>
+
+        <div class="sp-hero">
+
+            <div class="sp-watermark">KAgger☕</div>
+
+            <div class="sp-content">
+
+                <div class="sp-badge">
+                    ✦ YOUR AI RESEARCH COMPANION
+                </div>
+
+                <div class="sp-title">
+                    Turn Research Papers<br>
+                    Into <span>Meaningful Insights.</span>
+                </div>
+
+                <div class="sp-description">
+                    Analyze academic papers, discover key findings,
+                    identify research gaps, and organize your
+                    literature review in one intelligent workspace.
+                </div>
+
+                <div class="sp-features">
+                    <div class="sp-feature">
+                        📄 AI Paper Analysis
+                    </div>
+                    <div class="sp-feature">
+                        🔎 Evidence & Page References
+                    </div>
+                    <div class="sp-feature">
+                        📚 Literature Review Matrix
+                    </div>
+                </div>
+
+                <div class="sp-signature">
+                    DESIGNED WITH PURPOSE · SCHOLARPILOT
+                </div>
+
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.write("")
+
+    if st.button(
+        "🚀 Start Researching",
+        type="primary",
+        use_container_width=True,
+        key="start_researching",
+    ):
+        st.session_state.show_workspace = True
+        st.rerun()
+
+    st.caption(
+        "AI-assisted research analysis. "
+        "Always verify important findings against original papers."
+    )
+
+    st.stop()
+
+# =========================================================
+# END LANDING PAGE
+# =========================================================
 
 st.title("🎓 ScholarPilot")
 st.subheader("Your AI-Powered Research Paper Assistant")
