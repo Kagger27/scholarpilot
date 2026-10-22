@@ -603,11 +603,10 @@ if papers:
         "Verify important findings against the original papers."
     )
 
-st.divider()
+st.divider()    
+st.header("📚 Literature Review Matrix")
 
-    st.header("📚 Literature Review Matrix")
-
-    matrix = build_literature_matrix(papers)
+matrix = build_literature_matrix(papers)
 
     st.dataframe(
         matrix,
