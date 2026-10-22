@@ -799,4 +799,40 @@ if papers:
 
     else:
 
-       
+        st.info(
+            "Analyze at least two papers to use "
+            "the research comparison feature."
+        )
+
+    # -----------------------------------------------------
+    # CLEAR RESULTS
+    # -----------------------------------------------------
+
+    st.divider()
+
+    if st.button("🗑️ Clear Results"):
+
+        st.session_state.pop(
+            "scholarpilot_results",
+            None,
+        )
+
+        st.session_state.pop(
+            "scholarpilot_comparison",
+            None,
+        )
+
+        st.rerun()
+
+
+# =========================================================
+# FOOTER
+# =========================================================
+
+st.divider()
+
+st.caption(
+    "ScholarPilot | AI-assisted academic research analysis. "
+    "Always verify quotations, page numbers, and interpretations "
+    "against the original research papers."
+)
