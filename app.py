@@ -5,6 +5,7 @@ import json
 import re
 from io import BytesIO
 from google import genai
+from supabase import create_client
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -14,6 +15,74 @@ st.set_page_config(
     page_icon="🎓",
     layout="wide",
 )
+
+# =========================================================
+# SUPABASE AUTHENTICATION SETUP
+# =========================================================
+def get_supabase_client():
+    """Create one Supabase client per Streamlit browser session."""
+    if "scholarpilot_supabase" in st.session_state:
+        return st.session_state["scholarpilot_supabase"]
+
+    try:
+        config = st.secrets.get("supabase", {})
+        supabase_url = config.get("url", st.secrets.get("SUPABASE_URL", ""))
+        supabase_key = config.get("key", st.secrets.get("SUPABASE_KEY", ""))
+        if not supabase_url or not supabase_key:
+            return None
+        client = create_client(supabase_url, supabase_key)
+        st.session_state["scholarpilot_supabase"] = client
+        return client
+    except Exception as error:
+        st.session_state["scholarpilot_auth_setup_error"] = str(error)
+        return None
+
+
+def get_response_user(response):
+    """Get a user object from Supabase auth response versions."""
+    user = getattr(response, "user", None)
+    if user is not None:
+        return user
+    session = getattr(response, "session", None)
+    return getattr(session, "user", None) if session is not None else None
+
+
+def user_details(user):
+    if user is None:
+        return None
+    return {
+        "id": getattr(user, "id", ""),
+        "email": getattr(user, "email", "") or "",
+    }
+
+
+supabase = get_supabase_client()
+
+# Supabase sends users back to this app with a short-lived PKCE auth code.
+# The same client is kept in Streamlit session state so it can exchange the code.
+if supabase is not None:
+    try:
+        oauth_code = st.query_params.get("code")
+        if oauth_code:
+            auth_response = supabase.auth.exchange_code_for_session({"auth_code": oauth_code})
+            oauth_user = get_response_user(auth_response)
+            if oauth_user is None:
+                current_session = supabase.auth.get_session()
+                oauth_user = getattr(current_session, "user", None) if current_session else None
+            if oauth_user is not None:
+                st.session_state["scholarpilot_user"] = user_details(oauth_user)
+                st.session_state["show_workspace"] = True
+            st.query_params.clear()
+    except Exception as error:
+        st.session_state["scholarpilot_oauth_error"] = (
+            "Google sign-in could not be completed. Please try signing in again. "
+            f"Details: {error}"
+        )
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
 
 # =========================================================
 # PREMIUM LANDING PAGE
@@ -145,9 +214,147 @@ if not st.session_state.show_workspace:
     st.stop()
 
 # =========================================================
+# AUTHENTICATION GATE FOR THE RESEARCH WORKSPACE
+# =========================================================
+if supabase is None:
+    st.error(
+        "ScholarPilot sign-in is not configured yet. Please check the Supabase "
+        "URL and publishable key in Streamlit Secrets."
+    )
+    setup_error = st.session_state.get("scholarpilot_auth_setup_error")
+    if setup_error:
+        st.caption(f"Setup detail: {setup_error}")
+    st.stop()
+
+# Recover a session already held by this browser's Supabase client.
+if not st.session_state.get("scholarpilot_user"):
+    try:
+        current_session = supabase.auth.get_session()
+        current_user = getattr(current_session, "user", None) if current_session else None
+        if current_user is not None:
+            st.session_state["scholarpilot_user"] = user_details(current_user)
+    except Exception:
+        pass
+
+signed_in_user = st.session_state.get("scholarpilot_user")
+if not signed_in_user:
+    st.title("🔐 Sign in to ScholarPilot")
+    st.write("Create an account or sign in to open your research workspace.")
+
+    oauth_error = st.session_state.pop("scholarpilot_oauth_error", None)
+    if oauth_error:
+        st.error(oauth_error)
+
+    login_tab, signup_tab = st.tabs(["Sign in", "Create account"])
+    with login_tab:
+        with st.form("scholarpilot_login_form"):
+            login_email = st.text_input("Email address", key="sp_login_email")
+            login_password = st.text_input(
+                "Password", type="password", key="sp_login_password"
+            )
+            login_submitted = st.form_submit_button(
+                "Sign in with email", type="primary", use_container_width=True
+            )
+        if login_submitted:
+            try:
+                response = supabase.auth.sign_in_with_password(
+                    {"email": login_email.strip(), "password": login_password}
+                )
+                user = get_response_user(response)
+                if user is None:
+                    session = getattr(response, "session", None)
+                    user = getattr(session, "user", None) if session else None
+                if user is None:
+                    st.error("Sign-in did not return a user. Please try again.")
+                else:
+                    st.session_state["scholarpilot_user"] = user_details(user)
+                    st.session_state["show_workspace"] = True
+                    st.session_state.pop("scholarpilot_results", None)
+                    st.session_state.pop("scholarpilot_comparison", None)
+                    st.rerun()
+            except Exception as error:
+                st.error(f"Sign-in failed. Check your email and password. ({error})")
+
+    with signup_tab:
+        with st.form("scholarpilot_signup_form"):
+            signup_email = st.text_input("Email address", key="sp_signup_email")
+            signup_password = st.text_input(
+                "Create password (at least 8 characters)",
+                type="password",
+                key="sp_signup_password",
+            )
+            signup_confirm = st.text_input(
+                "Confirm password", type="password", key="sp_signup_confirm"
+            )
+            signup_submitted = st.form_submit_button(
+                "Create account", type="primary", use_container_width=True
+            )
+        if signup_submitted:
+            if not signup_email.strip():
+                st.warning("Enter your email address.")
+            elif len(signup_password) < 8:
+                st.warning("Your password must be at least 8 characters long.")
+            elif signup_password != signup_confirm:
+                st.warning("The passwords do not match.")
+            else:
+                try:
+                    response = supabase.auth.sign_up(
+                        {"email": signup_email.strip(), "password": signup_password}
+                    )
+                    user = get_response_user(response)
+                    session = getattr(response, "session", None)
+                    if user is not None and session is not None:
+                        st.session_state["scholarpilot_user"] = user_details(user)
+                        st.session_state["show_workspace"] = True
+                        st.rerun()
+                    else:
+                        st.success(
+                            "Account request received. Check your email for a "
+                            "confirmation link, then return here to sign in."
+                        )
+                except Exception as error:
+                    st.error(f"Could not create your account: {error}")
+
+    st.divider()
+    st.markdown("**Or sign in with Google**")
+    if st.button("Continue with Google", use_container_width=True):
+        try:
+            app_url = "https://scholarpilot-8nz8pgthwr6ngbd3z5wgda.streamlit.app/"
+            oauth_response = supabase.auth.sign_in_with_oauth(
+                {
+                    "provider": "google",
+                    "options": {"redirect_to": app_url},
+                }
+            )
+            oauth_url = getattr(oauth_response, "url", None)
+            if oauth_url is None and isinstance(oauth_response, dict):
+                oauth_data = oauth_response.get("data", oauth_response)
+                oauth_url = oauth_data.get("url") if isinstance(oauth_data, dict) else None
+            if oauth_url:
+                st.session_state["scholarpilot_google_oauth_url"] = oauth_url
+            else:
+                st.error("Supabase did not return a Google sign-in link. Please try again.")
+        except Exception as error:
+            st.error(f"Could not start Google sign-in: {error}")
+
+    oauth_url = st.session_state.get("scholarpilot_google_oauth_url")
+    if oauth_url:
+        st.link_button("Open Google sign-in", oauth_url, use_container_width=True)
+        st.caption("After Google confirms your account, you will return to ScholarPilot.")
+    st.stop()
+
+# Clear any in-memory research results if the signed-in account changes.
+current_user_id = signed_in_user.get("id")
+previous_user_id = st.session_state.get("scholarpilot_active_user_id")
+if previous_user_id and current_user_id != previous_user_id:
+    st.session_state.pop("scholarpilot_results", None)
+    st.session_state.pop("scholarpilot_comparison", None)
+st.session_state["scholarpilot_active_user_id"] = current_user_id
+
+# =========================================================
 # WORKSPACE HEADER / RETURN HOME
 # =========================================================
-top_left, top_right = st.columns([5, 1])
+top_left, top_right = st.columns([4, 1])
 with top_left:
     st.title("🎓 ScholarPilot")
     st.subheader("Your AI-Powered Research Paper Assistant")
@@ -155,7 +362,21 @@ with top_left:
         "Analyze research papers, organize findings, identify research gaps, "
         "and compare studies using AI."
     )
+    st.caption(f"Signed in as: {signed_in_user.get('email', 'ScholarPilot user')}")
 with top_right:
+    if st.button("🚪 Sign out", use_container_width=True):
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+        for key in (
+            "scholarpilot_user", "scholarpilot_active_user_id",
+            "scholarpilot_results", "scholarpilot_comparison",
+            "scholarpilot_google_oauth_url",
+        ):
+            st.session_state.pop(key, None)
+        st.session_state.show_workspace = False
+        st.rerun()
     if st.button("🏠 Home", use_container_width=True):
         st.session_state.show_workspace = False
         st.rerun()
