@@ -338,10 +338,33 @@ if not signed_in_user:
             st.error(f"Could not start Google sign-in: {error}")
 
     oauth_url = st.session_state.get("scholarpilot_google_oauth_url")
-    if oauth_url:
-        st.link_button("Open Google sign-in", oauth_url, use_container_width=True)
-        st.caption("After Google confirms your account, you will return to ScholarPilot.")
-    st.stop()
+
+if oauth_url:
+    st.markdown(
+        f"""
+        <a href="{oauth_url}" target="_self"
+           style="
+               display: block;
+               text-align: center;
+               padding: 14px;
+               background-color: #6D4AFF;
+               color: white;
+               text-decoration: none;
+               border-radius: 10px;
+               font-weight: bold;
+               margin-top: 10px;
+           ">
+           Continue to Google
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "After Google confirms your account, "
+        "you will return to ScholarPilot."
+    )
+
+st.stop()
 
 # Clear any in-memory research results if the signed-in account changes.
 current_user_id = signed_in_user.get("id")
